@@ -2,13 +2,15 @@ package main
 
 import (
 	"fmt"
-	"go-learn/apply"
+	"sealer-runtime-demo/apply"
 )
 
 func main() {
-	processor := apply.NewProcessor()
-	err := processor.ApplyClusterFile()
-	if err != nil {
+	processor := &apply.Processor{}
+	fmt.Sprintln("ls -al")
+	fmt.Printf("%#v\n", processor)
+
+	if err := processor.ApplyClusterFile(); err != nil {
 		fmt.Println(" handler a error")
 	}
 }

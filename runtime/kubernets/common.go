@@ -1,10 +1,10 @@
 package kubernets
 
 const (
-	Cluster                = "Cluster"
-	InitConfiguration      = "InitConfiguration"
-	JoinConfiguration      = "JoinConfiguration"
-	ClusterConfiguration   = "ClusterConfiguration"
-	KubeProxyConfiguration = "KubeProxyConfiguration"
-	KubeletConfiguration   = "KubeletConfiguration"
+	Cluster                = "Cluster" 	`json:"cluster"`
+	InitConfiguration      = "InitConfiguration"	`json:"initConfiguration"`
+	JoinConfiguration      = "JoinConfiguration"	`json:"joinConfiguration"`
+	ClusterConfiguration   = "ClusterConfiguration"		`json:"clusterConfiguration"`
+	KubeProxyConfiguration = "KubeProxyConfiguration"		`json:"kubeProxyConfiguration"`
+	KubeletConfiguration   = "KubeletConfiguration"			`json:"kubeletConfiguration"`
 )
