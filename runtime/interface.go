@@ -20,6 +20,7 @@ package runtime
 
 import (
 	"fmt"
+	"github.com/cubxxw/sealer-runtime/runtime"
 )
 
 type Interface interface {

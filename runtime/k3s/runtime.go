@@ -1,31 +1,45 @@
-package
+package k3s
 
 import (
 	"fmt"
-	"sealer-runtime-demo/runtime"
-	
+
+	"github.com/cubxxw/sealer-runtime/runtime"
 )
 
-
-
-type k3sRuntime struct {
+type K3sRuntime struct {
+	*runtime.BaseRuntime
 	ClusterRuntime string `json:"clusterRuntime"`
-	Action		 string `json:"action"`
-	Config		 string `json:"config"`
+	Action         string `json:"action"`
+	Config         string `json:"config"`
 }
 
-func (k *k3sRuntime) Init() error {
-	fmt.Println("k3s init start...")
+type K3sRuntime struct {
+	ClusterRuntime string `json:"clusterRuntime"`
+	Action         string `json:"action"`
+	Config         string `json:"config"`
+}
+
+func (k *K3sRuntime) Init() error {
+	fmt.Println("K3sRuntime start to create a cluster ...")
+	return k.init()
+}
+
+func (k *K3sRuntime) Upgrade() error {
+	fmt.Println("K3sRuntime start to upgrade a cluster ...")
 	return nil
 }
 
-func (k *k3sRuntime) Upgrade() error {
-	fmt.Println("k3s upgrade start...")
+func (k *K3sRuntime) Reset() error {
+	fmt.Println("K3sRuntime start to reset a cluster ...")
 	return nil
 }
 
-func (k *k3sRuntime) Reset() error {
-	fmt.Println("k3s reset start...")
-	return nil
+func (k *K3sRuntime) GetMetadata() (string, error) {
+	fmt.Println("K3sRuntime start to get metadata ...")
+	return "K3sRuntime", nil
 }
 
+func (k *K3sRuntime) UpdateCert(certs []string) error {
+	fmt.Println("K3sRuntime start to update certs ...")
+	return nil
+}

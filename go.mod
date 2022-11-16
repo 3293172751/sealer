@@ -1,3 +1,3 @@
-module sealer-runtime-demo
+module github.com/cubxxw/sealer-runtime
 
 go 1.19

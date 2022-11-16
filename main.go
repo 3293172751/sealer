@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"sealer-runtime-demo/apply"
+	"github.com/cubxxw/sealer-runtime/apply"
 )
 
 func main() {

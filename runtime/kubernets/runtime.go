@@ -2,7 +2,7 @@ package kubernets
 
 import (
 	"fmt"
-	"sealer-runtime-demo/runtime"
+	"github.com/cubxxw/sealer-runtime/runtime"
 	"sync"
 )
 

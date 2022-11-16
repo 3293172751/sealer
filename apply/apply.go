@@ -15,10 +15,10 @@ package apply
 
 import (
 	"fmt"
-	"sealer-runtime-demo/runtime"
-	"sealer-runtime-demo/runtime/k0s"
-	"sealer-runtime-demo/runtime/k3s"
-	"sealer-runtime-demo/runtime/kubernets"
+	"github.com/cubxxw/sealer-runtime/runtime"
+	"github.com/cubxxw/sealer-runtime/runtime/k0s"
+	"github.com/cubxxw/sealer-runtime/runtime/k3s"
+	"github.com/cubxxw/sealer-runtime/runtime/kubernets"
 )
 
 const (

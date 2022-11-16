@@ -2,7 +2,7 @@ package k0s
 
 import (
 	"fmt"
-	"sealer-runtime-demo/runtime"
+	"github.com/cubxxw/sealer-runtime/runtime"
 )
 
 type K0sctlRuntime struct {
