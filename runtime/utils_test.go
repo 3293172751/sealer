@@ -1,5 +1,5 @@
 // this is test file
-package main
+package runtime
 
 func instTasdest() {
 

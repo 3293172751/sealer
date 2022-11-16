@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sealer-runtime-demo/runtime"
 	"sealer-runtime-demo/runtime/k0s"
+	"sealer-runtime-demo/runtime/k3s"
 	"sealer-runtime-demo/runtime/kubernets"
 )
 

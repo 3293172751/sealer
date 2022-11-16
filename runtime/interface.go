@@ -27,7 +27,7 @@ type Interface interface {
 	Upgrade() error
 	Reset() error
 	GetMetadata() (string, error)
-	UpdateCert(certs []string) error   //uodate cert
+	UpdateCert(certs []string) error //uodate cert
 }
 
 // ClusterRuntime is a flag to distinguish the runtime for k0s、k8s、k3s
@@ -120,18 +120,4 @@ func (k *K0s) GetMetadata() (string, error) {
 func (k *K0s) UpdateCert(certs []string) error {
 	fmt.Println("k0s start to update certs ...")
 	return nil
-}
-
-func NewKsRuntime(ksname string) interface{} {
-	// 判断传入的是k3s ,k0s 还是kubernets
-	switch ksname {
-	case "k3s":
-		return &K3s{}
-	case "k0s":
-		return &K0s{}
-	case "kubernetes":
-		return &KubeRuntime{}
-	default:
-		return nil
-	}
 }
