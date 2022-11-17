@@ -20,7 +20,6 @@ package runtime
 
 import (
 	"fmt"
-	"github.com/cubxxw/sealer-runtime/runtime"
 )
 
 type Interface interface {
@@ -67,6 +66,7 @@ func (k *KubeRuntime) UpdateCert(certs []string) error {
 }
 
 type K3s struct {
+	
 }
 
 func (k *K3s) Init() error {
@@ -96,6 +96,7 @@ func (k *K3s) UpdateCert(certs []string) error {
 
 // k0s inherits k3s
 type K0s struct {
+
 }
 
 func (k *K0s) Init() error {

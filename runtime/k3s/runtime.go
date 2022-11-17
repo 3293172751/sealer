@@ -7,13 +7,6 @@ import (
 )
 
 type K3sRuntime struct {
-	*runtime.BaseRuntime
-	ClusterRuntime string `json:"clusterRuntime"`
-	Action         string `json:"action"`
-	Config         string `json:"config"`
-}
-
-type K3sRuntime struct {
 	ClusterRuntime string `json:"clusterRuntime"`
 	Action         string `json:"action"`
 	Config         string `json:"config"`
@@ -42,4 +35,13 @@ func (k *K3sRuntime) GetMetadata() (string, error) {
 func (k *K3sRuntime) UpdateCert(certs []string) error {
 	fmt.Println("K3sRuntime start to update certs ...")
 	return nil
+}
+
+func NewK3sRuntime() runtime.Interface {
+	fmt.Println("judge k8s new runtime...")
+	k3s := &K3sRuntime{}
+	// 打印结构体json
+	fmt.Printf("k8s json: %v \r	", k3s)
+
+	return k3s
 }

@@ -15,16 +15,11 @@ package apply
 
 import (
 	"fmt"
+
 	"github.com/cubxxw/sealer-runtime/runtime"
 	"github.com/cubxxw/sealer-runtime/runtime/k0s"
 	"github.com/cubxxw/sealer-runtime/runtime/k3s"
 	"github.com/cubxxw/sealer-runtime/runtime/kubernets"
-)
-
-const (
-	KubernetsRuntime = "kubernetes"
-	K3sRuntime       = "k3s"
-	K0sRuntime       = "k0s"
 )
 
 type Processor struct {
@@ -39,13 +34,14 @@ func (c *Processor) ApplyClusterFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to get runtime metadata: %w", err)
 	}
+
 	switch metadata {
 	case "k8s":
 		c.Runtime = kubernets.NewK8sRuntime()
 	case "k0s":
 		c.Runtime = k0s.NewK0sctlRuntime()
 	case "k3s":
-		// c.Runtime = k3s.NewK3sRuntime()
+		c.Runtime = k3s.NewK3sRuntime()
 	default:
 		c.Runtime = kubernets.NewK8sRuntime()
 	}

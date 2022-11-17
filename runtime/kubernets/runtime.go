@@ -2,8 +2,9 @@ package kubernets
 
 import (
 	"fmt"
-	"github.com/cubxxw/sealer-runtime/runtime"
 	"sync"
+
+	"github.com/cubxxw/sealer-runtime/runtime"
 )
 
 type KubeadmRuntime struct {
