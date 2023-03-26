@@ -862,8 +862,8 @@ github.com/stretchr/testify/require
 # github.com/subosito/gotenv v1.2.0
 ## explicit
 github.com/subosito/gotenv
-# github.com/sylabs/sif/v2 v2.7.1
-## explicit; go 1.17
+# github.com/sylabs/sif/v2 v2.8.1
+## explicit; go 1.18
 github.com/sylabs/sif/v2/pkg/sif
 # github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 ## explicit
