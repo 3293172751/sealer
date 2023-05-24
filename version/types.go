@@ -14,21 +14,34 @@
 
 package version
 
+import (
+	"fmt"
+)
+
 // Info contains versioning information.
 // TODO: Add []string of api versions supported? It's still unclear
 // how we'll want to distribute that information.
 type Info struct {
-	Major      string `json:"major,omitempty"`
-	Minor      string `json:"minor,omitempty"`
-	GitVersion string `json:"gitVersion"`
-	GitCommit  string `json:"gitCommit,omitempty"`
-	BuildDate  string `json:"buildDate"`
-	GoVersion  string `json:"goVersion"`
-	Compiler   string `json:"compiler"`
-	Platform   string `json:"platform"`
+	Major        string `json:"major,omitempty"`
+	Minor        string `json:"minor,omitempty"`
+	GitVersion   string `json:"gitVersion"`
+	GitCommit    string `json:"gitCommit,omitempty"`
+	GitTreeState string `json:"gitTreeState"`
+	BuildDate    string `json:"buildDate"`
+	GoVersion    string `json:"goVersion"`
+	Compiler     string `json:"compiler"`
+	Platform     string `json:"platform"`
+}
+
+type Output struct {
+	SealerVersion Info `json:"sealerVersion,omitempty" yaml:"sealerVersion,omitempty"`
 }
 
 // String returns info as a human-friendly version string.
 func (info Info) String() string {
-	return info.GitVersion
+	if s, err := info.Text(); err == nil {
+		return string(s)
+	}
+
+	return fmt.Sprintf("%s-%s", info.GitVersion, info.GitCommit)
 }
