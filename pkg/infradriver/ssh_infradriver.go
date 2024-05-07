@@ -26,6 +26,7 @@ import (
 	"github.com/sealerio/sealer/common"
 	v1 "github.com/sealerio/sealer/types/api/v1"
 	v2 "github.com/sealerio/sealer/types/api/v2"
+	mapUtils "github.com/sealerio/sealer/utils/maps"
 	"github.com/sealerio/sealer/utils/shellcommand"
 	"github.com/sealerio/sealer/utils/ssh"
 	strUtil "github.com/sealerio/sealer/utils/strings"
@@ -41,22 +42,9 @@ type SSHInfraDriver struct {
 	hostRolesMap map[string][]string
 	roleHostsMap map[string][]net.IP
 	hostLabels   map[string]map[string]string
-	hostEnvMap   map[string]map[string]interface{}
-	clusterEnv   map[string]interface{}
+	hostEnvMap   map[string]map[string]string
+	clusterEnv   map[string]string
 	cluster      v2.Cluster
-}
-
-func mergeList(hostEnv, globalEnv map[string]interface{}) map[string]interface{} {
-	if len(hostEnv) == 0 {
-		return copyEnv(globalEnv)
-	}
-	for globalEnvKey, globalEnvValue := range globalEnv {
-		if _, ok := hostEnv[globalEnvKey]; ok {
-			continue
-		}
-		hostEnv[globalEnvKey] = globalEnvValue
-	}
-	return hostEnv
 }
 
 func convertTaints(taints []string) ([]k8sv1.Taint, error) {
@@ -71,18 +59,6 @@ func convertTaints(taints []string) ([]k8sv1.Taint, error) {
 	return k8staints, nil
 }
 
-func copyEnv(origin map[string]interface{}) map[string]interface{} {
-	if origin == nil {
-		return nil
-	}
-	ret := make(map[string]interface{}, len(origin))
-	for k, v := range origin {
-		ret[k] = v
-	}
-
-	return ret
-}
-
 // NewInfraDriver will create a new Infra driver, and if extraEnv specified, it will set env not exist in Cluster
 func NewInfraDriver(cluster *v2.Cluster) (InfraDriver, error) {
 	var err error
@@ -92,7 +68,7 @@ func NewInfraDriver(cluster *v2.Cluster) (InfraDriver, error) {
 		roleHostsMap: map[string][]net.IP{},
 		hostRolesMap: map[string][]string{},
 		// todo need to separate env into app render data and sys render data
-		hostEnvMap: map[string]map[string]interface{}{},
+		hostEnvMap: map[string]map[string]string{},
 		hostLabels: map[string]map[string]string{},
 		hostTaint:  map[string][]k8sv1.Taint{},
 	}
@@ -118,12 +94,12 @@ func NewInfraDriver(cluster *v2.Cluster) (InfraDriver, error) {
 	}
 
 	// initialize sshConfigs field
-	for _, host := range cluster.Spec.Hosts {
-		if err = mergo.Merge(&host.SSH, &cluster.Spec.SSH); err != nil {
+	for i := range cluster.Spec.Hosts {
+		if err = mergo.Merge(&cluster.Spec.Hosts[i].SSH, &cluster.Spec.SSH); err != nil {
 			return nil, err
 		}
-		for _, ip := range host.IPS {
-			ret.sshConfigs[ip.String()] = ssh.NewSSHClient(&host.SSH, true)
+		for _, ip := range cluster.Spec.Hosts[i].IPS {
+			ret.sshConfigs[ip.String()] = ssh.NewSSHClient(&cluster.Spec.Hosts[i].SSH, true)
 		}
 	}
 
@@ -148,13 +124,17 @@ func NewInfraDriver(cluster *v2.Cluster) (InfraDriver, error) {
 	// merge the host ENV and global env, the host env will overwrite cluster.Spec.Env
 	for _, host := range cluster.Spec.Hosts {
 		for _, ip := range host.IPS {
-			ret.hostEnvMap[ip.String()] = mergeList(strUtil.ConvertStringSliceToMap(host.Env), ret.clusterEnv)
+			ret.hostEnvMap[ip.String()] = mapUtils.Merge(strUtil.ConvertStringSliceToMap(host.Env), ret.clusterEnv)
 			ret.hostLabels[ip.String()] = host.Labels
-			taints, err := convertTaints(host.Taints)
+		}
+	}
+
+	for _, host := range cluster.Spec.Hosts {
+		for _, ip := range host.IPS {
+			ret.hostTaint[ip.String()], err = convertTaints(host.Taints)
 			if err != nil {
 				return nil, err
 			}
-			ret.hostTaint[ip.String()] = taints
 		}
 	}
 
@@ -177,7 +157,7 @@ func (d *SSHInfraDriver) GetRoleListByHostIP(ip string) []string {
 	return d.hostRolesMap[ip]
 }
 
-func (d *SSHInfraDriver) GetHostEnv(host net.IP) map[string]interface{} {
+func (d *SSHInfraDriver) GetHostEnv(host net.IP) map[string]string {
 	// Set env for each host
 	hostEnv := d.hostEnvMap[host.String()]
 	if _, ok := hostEnv[common.EnvHostIP]; !ok {
@@ -190,7 +170,7 @@ func (d *SSHInfraDriver) GetHostLabels(host net.IP) map[string]string {
 	return d.hostLabels[host.String()]
 }
 
-func (d *SSHInfraDriver) GetClusterEnv() map[string]interface{} {
+func (d *SSHInfraDriver) GetClusterEnv() map[string]string {
 	return d.clusterEnv
 }
 
@@ -225,7 +205,7 @@ func (d *SSHInfraDriver) CopyR(host net.IP, remoteFilePath, localFilePath string
 	return client.CopyR(host, localFilePath, remoteFilePath)
 }
 
-func (d *SSHInfraDriver) CmdAsync(host net.IP, env map[string]interface{}, cmd ...string) error {
+func (d *SSHInfraDriver) CmdAsync(host net.IP, env map[string]string, cmd ...string) error {
 	client := d.sshConfigs[host.String()]
 	if client == nil {
 		return fmt.Errorf("ip(%s) is not in cluster", host.String())
@@ -233,7 +213,7 @@ func (d *SSHInfraDriver) CmdAsync(host net.IP, env map[string]interface{}, cmd .
 	return client.CmdAsync(host, env, cmd...)
 }
 
-func (d *SSHInfraDriver) Cmd(host net.IP, env map[string]interface{}, cmd string) ([]byte, error) {
+func (d *SSHInfraDriver) Cmd(host net.IP, env map[string]string, cmd string) ([]byte, error) {
 	client := d.sshConfigs[host.String()]
 	if client == nil {
 		return nil, fmt.Errorf("ip(%s) is not in cluster", host.String())
@@ -241,7 +221,7 @@ func (d *SSHInfraDriver) Cmd(host net.IP, env map[string]interface{}, cmd string
 	return client.Cmd(host, env, cmd)
 }
 
-func (d *SSHInfraDriver) CmdToString(host net.IP, env map[string]interface{}, cmd, spilt string) (string, error) {
+func (d *SSHInfraDriver) CmdToString(host net.IP, env map[string]string, cmd, spilt string) (string, error) {
 	client := d.sshConfigs[host.String()]
 	if client == nil {
 		return "", fmt.Errorf("ip(%s) is not in cluster", host.String())
@@ -326,7 +306,7 @@ func (d *SSHInfraDriver) GetClusterLaunchApps() []string {
 }
 
 func (d *SSHInfraDriver) GetHostName(hostIP net.IP) (string, error) {
-	hostName, err := d.CmdToString(hostIP, nil, "hostname", "")
+	hostName, err := d.CmdToString(hostIP, nil, "uname -n", "")
 	if err != nil {
 		return "", err
 	}
@@ -358,11 +338,21 @@ func (d *SSHInfraDriver) GetHostsPlatform(hosts []net.IP) (map[v1.Platform][]net
 }
 
 func (d *SSHInfraDriver) GetClusterRootfsPath() string {
-	return filepath.Join(common.DefaultSealerDataDir, d.cluster.Name, "rootfs")
+	dataRoot := d.cluster.Spec.DataRoot
+	if dataRoot == "" {
+		dataRoot = common.DefaultSealerDataDir
+	}
+
+	return filepath.Join(dataRoot, d.cluster.Name, "rootfs")
 }
 
 func (d *SSHInfraDriver) GetClusterBasePath() string {
-	return filepath.Join(common.DefaultSealerDataDir, d.cluster.Name)
+	dataRoot := d.cluster.Spec.DataRoot
+	if dataRoot == "" {
+		dataRoot = common.DefaultSealerDataDir
+	}
+
+	return filepath.Join(dataRoot, d.cluster.Name)
 }
 
 func (d *SSHInfraDriver) Execute(hosts []net.IP, f func(host net.IP) error) error {

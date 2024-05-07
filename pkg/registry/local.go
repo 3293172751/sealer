@@ -27,12 +27,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/common/pkg/auth"
-	"github.com/pelletier/go-toml"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
-	k8snet "k8s.io/utils/net"
-
 	"github.com/sealerio/sealer/common"
 	containerruntime "github.com/sealerio/sealer/pkg/container-runtime"
 	"github.com/sealerio/sealer/pkg/imagedistributor"
@@ -42,6 +36,12 @@ import (
 	netutils "github.com/sealerio/sealer/utils/net"
 	osutils "github.com/sealerio/sealer/utils/os"
 	"github.com/sealerio/sealer/utils/shellcommand"
+
+	"github.com/containers/common/pkg/auth"
+	"github.com/pelletier/go-toml"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
+	k8snet "k8s.io/utils/net"
 )
 
 const (
@@ -54,6 +54,17 @@ type localConfigurator struct {
 	containerRuntimeInfo containerruntime.Info
 	infraDriver          infradriver.InfraDriver
 	distributor          imagedistributor.Distributor
+}
+
+func (c *localConfigurator) GetRegistryInfo() RegistryInfo {
+	registryInfo := RegistryInfo{Local: LocalRegistryInfo{LocalRegistry: c.LocalRegistry}}
+	if *c.LocalRegistry.HA {
+		registryInfo.Local.Vip = GetRegistryVIP(c.infraDriver)
+		registryInfo.Local.DeployHosts = c.deployHosts
+	} else {
+		registryInfo.Local.DeployHosts = append(registryInfo.Local.DeployHosts, c.deployHosts[0])
+	}
+	return registryInfo
 }
 
 func (c *localConfigurator) GetDriver() (Driver, error) {
@@ -75,7 +86,10 @@ func (c *localConfigurator) UninstallFrom(deletedMasters, deletedNodes []net.IP)
 	if len(c.deployHosts) == 0 {
 		return nil
 	}
-
+	// if deletedMasters is nil, means no need to flush workers, just return
+	if len(deletedMasters) == 0 {
+		return nil
+	}
 	// flush ipvs policy on remain nodes
 	return c.configureLvs(c.deployHosts, netutils.RemoveIPs(c.infraDriver.GetHostIPListByRole(common.NODE), deletedNodes))
 }
@@ -148,6 +162,10 @@ func (c *localConfigurator) configureRegistryNetwork(masters, nodes []net.IP) er
 		return err
 	}
 
+	// if masters is nil, means no need to flush old nodes
+	if len(masters) == 0 {
+		return c.configureLvs(c.deployHosts, nodes)
+	}
 	return c.configureLvs(c.deployHosts, c.infraDriver.GetHostIPListByRole(common.NODE))
 }
 
@@ -165,18 +183,7 @@ func (c *localConfigurator) configureLvs(registryHosts, clientHosts []net.IP) er
 	//todo should make lvs image name as const value in sealer repo.
 	lvsImageURL := path.Join(net.JoinHostPort(c.Domain, strconv.Itoa(c.Port)), common.LvsCareRepoAndTag)
 
-	vip := common.DefaultVIP
-	if hosts := c.infraDriver.GetHostIPList(); len(hosts) > 0 && k8snet.IsIPv6(hosts[0]) {
-		vip = common.DefaultVIPForIPv6
-	}
-
-	if ipv4, ok := c.infraDriver.GetClusterEnv()[common.EnvIPvsVIPForIPv4]; ok {
-		vip = ipv4.(string)
-	}
-
-	if ipv6, ok := c.infraDriver.GetClusterEnv()[common.EnvIPvsVIPForIPv6]; ok {
-		vip = ipv6.(string)
-	}
+	vip := GetRegistryVIP(c.infraDriver)
 
 	vs := net.JoinHostPort(vip, strconv.Itoa(c.Port))
 	// due to registry server do not have health path to check, choose "/" as default.
@@ -203,7 +210,7 @@ func (c *localConfigurator) configureLvs(registryHosts, clientHosts []net.IP) er
 		eg.Go(func() error {
 			err := c.infraDriver.CmdAsync(n, nil, ipvsCmd, lvscareStaticCmd)
 			if err != nil {
-				return fmt.Errorf("failed to config nodes lvs policy %s: %v", ipvsCmd, err)
+				return fmt.Errorf("failed to config nodes lvs policy: %s: %v", ipvsCmd, err)
 			}
 
 			err = c.infraDriver.CmdAsync(n, nil, shellcommand.CommandSetHostAlias(c.Domain, vip))
@@ -389,17 +396,35 @@ func (c *localConfigurator) configureContainerdDaemonService(endpoint, hostTomlF
 		url                = "https://" + endpoint
 	)
 
-	tree, err := toml.TreeFromMap(map[string]interface{}{
-		"server": url,
-		fmt.Sprintf(`host."%s"`, url): map[string]interface{}{
-			"ca": registryCaCertPath,
+	cfg := Hosts{
+		Server: url,
+		HostConfigs: map[string]HostFileConfig{
+			url: {CACert: registryCaCertPath},
 		},
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to marshal Containerd hosts.toml file: %v", err)
 	}
-	return osutils.NewCommonWriter(hostTomlFile).WriteFile([]byte(tree.String()))
+
+	bs, err := toml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal containerd hosts.toml file: %v", err)
+	}
+
+	return osutils.NewCommonWriter(hostTomlFile).WriteFile(bs)
+}
+
+type Hosts struct {
+	// Server specifies the default server. When `host` is
+	// also specified, those hosts are tried first.
+	Server string `toml:"server"`
+	// HostConfigs store the per-host configuration
+	HostConfigs map[string]HostFileConfig `toml:"host"`
+}
+
+type HostFileConfig struct {
+	// CACert are the public key certificates for TLS
+	// Accepted types
+	// - string - Single file with certificate(s)
+	// - []string - Multiple files with certificates
+	CACert interface{} `toml:"ca"`
 }
 
 type DaemonConfig struct {
@@ -482,4 +507,20 @@ type DaemonLogOpts struct {
 	Labels        string `json:"labels,omitempty"`
 	MaxFile       string `json:"max-file,omitempty"`
 	MaxSize       string `json:"max-size,omitempty"`
+}
+
+func GetRegistryVIP(infraDriver infradriver.InfraDriver) string {
+	vip := common.DefaultVIP
+	if hosts := infraDriver.GetHostIPList(); len(hosts) > 0 && k8snet.IsIPv6(hosts[0]) {
+		vip = common.DefaultVIPForIPv6
+	}
+
+	if ipv4, ok := infraDriver.GetClusterEnv()[common.EnvIPvsVIPForIPv4]; ok {
+		vip = ipv4
+	}
+
+	if ipv6, ok := infraDriver.GetClusterEnv()[common.EnvIPvsVIPForIPv6]; ok {
+		vip = ipv6
+	}
+	return vip
 }

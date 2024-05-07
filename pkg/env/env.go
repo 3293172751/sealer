@@ -40,7 +40,7 @@ func base64decode(v string) string {
 
 // RenderTemplate :using renderData got from clusterfile to render all the files in dir with ".tmpl" as suffix.
 // The scope of renderData comes from cluster.spec.env
-func RenderTemplate(dir string, renderData map[string]interface{}) error {
+func RenderTemplate(dir string, renderData map[string]string) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, errIn error) error {
 		if errIn != nil {
 			return errIn
@@ -48,7 +48,7 @@ func RenderTemplate(dir string, renderData map[string]interface{}) error {
 		if info.IsDir() || !strings.HasSuffix(info.Name(), templateSuffix) {
 			return nil
 		}
-		writer, err := os.OpenFile(strings.TrimSuffix(path, templateSuffix), os.O_CREATE|os.O_RDWR, os.ModePerm)
+		writer, err := os.Create(strings.TrimSuffix(path, templateSuffix))
 		if err != nil {
 			return fmt.Errorf("failed to open file [%s] when render env: %v", path, err)
 		}
@@ -75,7 +75,7 @@ func RenderTemplate(dir string, renderData map[string]interface{}) error {
 // Output shell: DATADISK=/data cat /etc/hosts
 // it is convenient for user to get env in scripts
 // The scope of env comes from cluster.spec.env and host.env
-func WrapperShell(shell string, wrapperData map[string]interface{}) string {
+func WrapperShell(shell string, wrapperData map[string]string) string {
 	env := getEnvFromData(wrapperData)
 
 	if len(env) == 0 {
@@ -84,15 +84,10 @@ func WrapperShell(shell string, wrapperData map[string]interface{}) string {
 	return fmt.Sprintf("%s %s", strings.Join(env, " "), shell)
 }
 
-func getEnvFromData(wrapperData map[string]interface{}) []string {
+func getEnvFromData(wrapperData map[string]string) []string {
 	var env []string
 	for k, v := range wrapperData {
-		switch value := v.(type) {
-		case []string:
-			env = append(env, fmt.Sprintf("export %s=(%s);", k, strings.Join(value, " ")))
-		case string:
-			env = append(env, fmt.Sprintf("export %s=\"%s\";", k, value))
-		}
+		env = append(env, fmt.Sprintf("export %s=\"%s\";", k, v))
 	}
 	sort.Strings(env)
 	return env

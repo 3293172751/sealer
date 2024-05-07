@@ -34,7 +34,7 @@ func (s *SSH) Ping(host net.IP) error {
 	}
 	client, _, err := s.Connect(host)
 	if err != nil {
-		return fmt.Errorf("[ssh %s] failed to create ssh session: %v", host, err)
+		return fmt.Errorf("failed to ping node %s using ssh session: %v", host, err)
 	}
 	err = client.Close()
 	if err != nil {
@@ -43,7 +43,15 @@ func (s *SSH) Ping(host net.IP) error {
 	return nil
 }
 
-func (s *SSH) CmdAsync(host net.IP, hostEnv map[string]interface{}, cmds ...string) error {
+func (s *SSH) CmdAsync(host net.IP, hostEnv map[string]string, cmds ...string) error {
+	// force specify PATH env
+	if hostEnv == nil {
+		hostEnv = map[string]string{}
+	}
+	if hostEnv["PATH"] == "" {
+		hostEnv["PATH"] = "/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin"
+	}
+
 	var execFunc func(cmd string) error
 
 	if utilsnet.IsLocalIP(host, s.LocalAddress) {
@@ -120,7 +128,15 @@ func (s *SSH) CmdAsync(host net.IP, hostEnv map[string]interface{}, cmds ...stri
 	return nil
 }
 
-func (s *SSH) Cmd(host net.IP, hostEnv map[string]interface{}, cmd string) ([]byte, error) {
+func (s *SSH) Cmd(host net.IP, hostEnv map[string]string, cmd string) ([]byte, error) {
+	// force specify PATH env
+	if hostEnv == nil {
+		hostEnv = map[string]string{}
+	}
+	if hostEnv["PATH"] == "" {
+		hostEnv["PATH"] = "/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin"
+	}
+
 	if s.User != common.ROOT {
 		cmd = fmt.Sprintf("sudo -E /bin/bash <<EOF\n%s\nEOF", cmd)
 	}
@@ -155,13 +171,14 @@ func (s *SSH) Cmd(host net.IP, hostEnv map[string]interface{}, cmd string) ([]by
 }
 
 // CmdToString is in host exec cmd and replace to spilt str
-func (s *SSH) CmdToString(host net.IP, env map[string]interface{}, cmd, split string) (string, error) {
+func (s *SSH) CmdToString(host net.IP, env map[string]string, cmd, split string) (string, error) {
 	data, err := s.Cmd(host, env, cmd)
 	str := string(data)
 	if err != nil {
 		return str, err
 	}
 	if data != nil {
+		str = strings.ReplaceAll(str, "\r", split)
 		str = strings.ReplaceAll(str, "\r\n", split)
 		str = strings.ReplaceAll(str, "\n", split)
 		return str, nil

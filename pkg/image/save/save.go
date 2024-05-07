@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/configuration"
@@ -32,13 +33,12 @@ import (
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/opencontainers/go-digest"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/sealerio/sealer/common"
 	"github.com/sealerio/sealer/pkg/client/docker/auth"
 	"github.com/sealerio/sealer/pkg/image/save/distributionpkg/proxy"
 	v1 "github.com/sealerio/sealer/types/api/v1"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -71,6 +71,7 @@ func (is *DefaultImageSaver) SaveImages(images []string, dir string, platform v1
 		}
 	}()
 
+	existFlag := make(map[string]struct{})
 	//handle image name
 	for _, image := range images {
 		named, err := ParseNormalizedNamed(image, "")
@@ -78,7 +79,14 @@ func (is *DefaultImageSaver) SaveImages(images []string, dir string, platform v1
 			return fmt.Errorf("failed to parse image name:: %v", err)
 		}
 
-		//check if image exist
+		//check if image is duplicate
+		if _, exist := existFlag[named.FullName()]; exist {
+			continue
+		} else {
+			existFlag[named.FullName()] = struct{}{}
+		}
+
+		//check if image exist in disk
 		if err := is.isImageExist(named, dir, platform); err == nil {
 			continue
 		}
@@ -321,9 +329,16 @@ func (is *DefaultImageSaver) saveManifestAndGetDigest(nameds []Named, repo distr
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest service: %v", err)
 	}
+
+	var (
+		// lock protects imageDigests
+		lock         sync.Mutex
+		imageDigests = make([]digest.Digest, 0)
+		numCh        = make(chan struct{}, maxPullGoroutineNum)
+	)
+
 	eg, _ := errgroup.WithContext(context.Background())
-	numCh := make(chan struct{}, maxPullGoroutineNum)
-	imageDigests := make([]digest.Digest, 0)
+
 	for _, named := range nameds {
 		tmpnamed := named
 		numCh <- struct{}{}
@@ -340,6 +355,9 @@ func (is *DefaultImageSaver) saveManifestAndGetDigest(nameds []Named, repo distr
 			if err != nil {
 				return fmt.Errorf("failed to get digest: %v", err)
 			}
+
+			lock.Lock()
+			defer lock.Unlock()
 			imageDigests = append(imageDigests, imageDigest)
 			return nil
 		})
@@ -388,9 +406,15 @@ func (is *DefaultImageSaver) saveBlobs(imageDigests []digest.Digest, repo distri
 	if err != nil {
 		return fmt.Errorf("failed to get blob service: %v", err)
 	}
+
+	var (
+		// lock protects blobLists
+		lock      sync.Mutex
+		blobLists = make([]digest.Digest, 0)
+		numCh     = make(chan struct{}, maxPullGoroutineNum)
+	)
+
 	eg, _ := errgroup.WithContext(context.Background())
-	numCh := make(chan struct{}, maxPullGoroutineNum)
-	blobLists := make([]digest.Digest, 0)
 
 	//get blob list
 	//each blob identified by a digest
@@ -411,6 +435,9 @@ func (is *DefaultImageSaver) saveBlobs(imageDigests []digest.Digest, repo distri
 			if err != nil {
 				return fmt.Errorf("failed to get blob list: %v", err)
 			}
+
+			lock.Lock()
+			defer lock.Unlock()
 			blobLists = append(blobLists, blobList...)
 			return nil
 		})

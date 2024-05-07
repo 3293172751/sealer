@@ -37,11 +37,11 @@ type Interface interface {
 	// CopyR copy remote host files to localhost
 	CopyR(host net.IP, srcFilePath, dstFilePath string) error
 	// CmdAsync exec command on remote host, and asynchronous return logs
-	CmdAsync(host net.IP, env map[string]interface{}, cmd ...string) error
+	CmdAsync(host net.IP, env map[string]string, cmd ...string) error
 	// Cmd exec command on remote host, and return combined standard output and standard error
-	Cmd(host net.IP, env map[string]interface{}, cmd string) ([]byte, error)
+	Cmd(host net.IP, env map[string]string, cmd string) ([]byte, error)
 	// CmdToString exec command on remote host, and return spilt standard output and standard error
-	CmdToString(host net.IP, env map[string]interface{}, cmd, spilt string) (string, error)
+	CmdToString(host net.IP, env map[string]string, cmd, spilt string) (string, error)
 	// IsFileExist check remote file exist or not
 	IsFileExist(host net.IP, remoteFilePath string) (bool, error)
 	// RemoteDirExist Remote file existence returns true, nil
@@ -88,13 +88,13 @@ func NewSSHClient(ssh *v1.SSH, alsoToStdout bool) Interface {
 
 // GetHostSSHClient is used to executed bash command and no std out to be printed.
 func GetHostSSHClient(hostIP net.IP, cluster *v2.Cluster) (Interface, error) {
-	for _, host := range cluster.Spec.Hosts {
-		for _, ip := range host.IPS {
+	for i := range cluster.Spec.Hosts {
+		for _, ip := range cluster.Spec.Hosts[i].IPS {
 			if hostIP.Equal(ip) {
-				if err := mergo.Merge(&host.SSH, &cluster.Spec.SSH); err != nil {
+				if err := mergo.Merge(&cluster.Spec.Hosts[i].SSH, &cluster.Spec.SSH); err != nil {
 					return nil, err
 				}
-				return NewSSHClient(&host.SSH, false), nil
+				return NewSSHClient(&cluster.Spec.Hosts[i].SSH, false), nil
 			}
 		}
 	}
@@ -103,13 +103,13 @@ func GetHostSSHClient(hostIP net.IP, cluster *v2.Cluster) (Interface, error) {
 
 // NewStdoutSSHClient is used to show std out when execute bash command.
 func NewStdoutSSHClient(hostIP net.IP, cluster *v2.Cluster) (Interface, error) {
-	for _, host := range cluster.Spec.Hosts {
-		for _, ip := range host.IPS {
+	for i := range cluster.Spec.Hosts {
+		for _, ip := range cluster.Spec.Hosts[i].IPS {
 			if hostIP.Equal(ip) {
-				if err := mergo.Merge(&host.SSH, &cluster.Spec.SSH); err != nil {
+				if err := mergo.Merge(&cluster.Spec.Hosts[i].SSH, &cluster.Spec.SSH); err != nil {
 					return nil, err
 				}
-				return NewSSHClient(&host.SSH, true), nil
+				return NewSSHClient(&cluster.Spec.Hosts[i].SSH, true), nil
 			}
 		}
 	}

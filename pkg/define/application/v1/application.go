@@ -28,6 +28,22 @@ type Application struct {
 	TypeVar    string   `json:"type,omitempty"`
 	FilesVar   []string `json:"files,omitempty"`
 	VersionVar string   `json:"version,omitempty"`
+
+	// AppEnv is a set of key value pair.
+	// it is app level, only this app will be aware of its existence,
+	// it is used to render app files, or as an environment variable for app startup and deletion commands
+	AppEnv map[string]string `json:"env,omitempty"`
+
+	// AppCMDs defined from `appcmds` instruction
+	AppCMDs []string `json:"cmds,omitempty"`
+}
+
+func (app *Application) SetEnv(appEnv map[string]string) {
+	app.AppEnv = appEnv
+}
+
+func (app *Application) SetCmds(appCmds []string) {
+	app.AppCMDs = appCmds
 }
 
 func (app *Application) Version() string {
@@ -42,12 +58,19 @@ func (app *Application) Type() string {
 	return app.TypeVar
 }
 
-func (app *Application) LaunchCmd(appRoot string, launchCmds []string) string {
-	if len(launchCmds) != 0 {
+func (app *Application) Files() []string {
+	return app.FilesVar
+}
+
+// GetAppLaunchCmd : Get the real app launch cmds values in the following order.
+// 1. appcmds instructionx defined in kubefile.
+// 2. generated default command based on app type
+func GetAppLaunchCmd(appRoot string, app *Application) string {
+	if len(app.AppCMDs) != 0 {
 		var cmds []string
 		cmds = append(cmds, []string{"cd", appRoot}...)
 		cmds = append(cmds, "&&")
-		cmds = append(cmds, launchCmds...)
+		cmds = append(cmds, app.AppCMDs...)
 		return strings.Join(cmds, " ")
 	}
 	switch app.Type() {

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
@@ -71,11 +72,11 @@ func NewKubeadmRuntime(clusterFileKubeConfig kubeadm.KubeadmConfig, infra infrad
 	}
 
 	if ipv4, ok := infra.GetClusterEnv()[common.EnvIPvsVIPForIPv4]; ok {
-		k.Config.VIP = ipv4.(string)
+		k.Config.VIP = ipv4
 	}
 
 	if ipv6, ok := infra.GetClusterEnv()[common.EnvIPvsVIPForIPv6]; ok {
-		k.Config.VIP = ipv6.(string)
+		k.Config.VIP = ipv6
 	}
 
 	if logrus.GetLevel() == logrus.DebugLevel {
@@ -150,7 +151,7 @@ func (k *Runtime) ScaleUp(newMasters, newWorkers []net.IP) error {
 	masters := k.infra.GetHostIPListByRole(common.MASTER)
 	workers := k.infra.GetHostIPListByRole(common.NODE)
 
-	kubeadmConfig, err := kubeadm.LoadKubeadmConfigs(KubeadmFileYml, utils.DecodeCRDFromFile)
+	kubeadmConfig, err := kubeadm.LoadKubeadmConfigs(path.Join(k.infra.GetClusterRootfsPath(), "kubeadm.yaml"), utils.DecodeCRDFromFile)
 	if err != nil {
 		return err
 	}

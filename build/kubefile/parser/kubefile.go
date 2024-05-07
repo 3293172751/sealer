@@ -26,13 +26,11 @@ import (
 	parse2 "github.com/containers/buildah/pkg/parse"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-
 	"github.com/sealerio/sealer/build/kubefile/command"
 	"github.com/sealerio/sealer/pkg/define/application/version"
-	v12 "github.com/sealerio/sealer/pkg/define/image/v1"
 	"github.com/sealerio/sealer/pkg/define/options"
 	"github.com/sealerio/sealer/pkg/imageengine"
+	"github.com/sirupsen/logrus"
 )
 
 // LegacyContext stores legacy information during the process of parsing.
@@ -58,13 +56,24 @@ type KubefileResult struct {
 	// LAUNCH ["myapp1","myapp2"]
 	LaunchedAppNames []string
 
+	// GlobalEnv is a set of key value pair.
+	// set to sealer image some default parameters which is in global level.
+	// user could overwrite it through v2.ClusterSpec at run stage.
+	GlobalEnv map[string]string
+
+	// AppEnv is a set of key value pair.
+	// it is app level, only this app will be aware of its existence,
+	// it is used to render app files, or as an environment variable for app startup and deletion commands
+	// it takes precedence over GlobalEnv.
+	AppEnvMap map[string]map[string]string
+
 	// Applications structured APP instruction and register it to this map
 	// APP myapp local://app.yaml
 	Applications map[string]version.VersionedApplication
 
-	// ApplicationConfigs structured APPCMDS instruction and register it to this map
+	// AppCmdsMap structured APPCMDS instruction and register it to this map
 	// APPCMDS myapp ["kubectl apply -f app.yaml"]
-	ApplicationConfigs map[string]*v12.ApplicationConfig
+	AppCmdsMap map[string][]string
 
 	legacyContext LegacyContext
 }
@@ -91,8 +100,10 @@ func (kp *KubefileParser) ParseKubefile(rwc io.Reader) (*KubefileResult, error) 
 func (kp *KubefileParser) generateResult(mainNode *Node) (*KubefileResult, error) {
 	var (
 		result = &KubefileResult{
-			Applications:       map[string]version.VersionedApplication{},
-			ApplicationConfigs: map[string]*v12.ApplicationConfig{},
+			Applications: map[string]version.VersionedApplication{},
+			AppCmdsMap:   map[string][]string{},
+			GlobalEnv:    map[string]string{},
+			AppEnvMap:    map[string]map[string]string{},
 			legacyContext: LegacyContext{
 				files:       []string{},
 				directories: []string{},
@@ -168,15 +179,29 @@ func (kp *KubefileParser) generateResult(mainNode *Node) (*KubefileResult, error
 	}
 
 	// check result validation
-	// if no app type detected and no ApplicationConfigs exist for this app, will return error.
+	// if no app type detected and no AppCmds exist for this app, will return error.
 	for name, registered := range result.Applications {
 		if registered.Type() != "" {
 			continue
 		}
 
-		if _, ok := result.ApplicationConfigs[name]; !ok {
+		if _, ok := result.AppCmdsMap[name]; !ok {
 			return nil, fmt.Errorf("app %s need to specify APPCMDS if no app type detected", name)
 		}
+	}
+
+	// register app with app env list.
+	for appName, appEnv := range result.AppEnvMap {
+		app := result.Applications[appName]
+		app.SetEnv(appEnv)
+		result.Applications[appName] = app
+	}
+
+	// register app with app cmds.
+	for appName, appCmds := range result.AppCmdsMap {
+		app := result.Applications[appName]
+		app.SetCmds(appCmds)
+		result.Applications[appName] = app
 	}
 
 	return result, nil
@@ -188,6 +213,12 @@ func (kp *KubefileParser) processOnCmd(result *KubefileResult, node *Node) error
 	case command.Label, command.Maintainer, command.Add, command.Arg, command.From, command.Run:
 		result.Dockerfile = mergeLines(result.Dockerfile, node.Original)
 		return nil
+	case command.Env:
+		// update global env to dockerfile at the same,	for using it at build stage.
+		result.Dockerfile = mergeLines(result.Dockerfile, node.Original)
+		return kp.processGlobalEnv(node, result)
+	case command.AppEnv:
+		return kp.processAppEnv(node, result)
 	case command.App:
 		_, err := kp.processApp(node, result)
 		return err
@@ -295,12 +326,76 @@ func (kp *KubefileParser) processAppCmds(node *Node, result *KubefileResult) err
 		return fmt.Errorf("the specified app name(%s) for `APPCMDS` should be exist", appName)
 	}
 
-	result.ApplicationConfigs[appName] = &v12.ApplicationConfig{
-		Name: appName,
-		Launch: &v12.ApplicationConfigLaunch{
-			CMDs: appCmds,
-		},
+	result.AppCmdsMap[appName] = appCmds
+	return nil
+}
+
+func (kp *KubefileParser) processAppEnv(node *Node, result *KubefileResult) error {
+	var (
+		appName = ""
+		envList []string
+	)
+
+	// first node value is the command
+	for ptr := node.Next; ptr != nil; ptr = ptr.Next {
+		val := ptr.Value
+		// record the first word to be the app name
+		if appName == "" {
+			appName = val
+			continue
+		}
+		envList = append(envList, val)
 	}
+
+	if appName == "" {
+		return errors.New("app name should be specified in the APPENV instruction")
+	}
+
+	if _, ok := result.Applications[appName]; !ok {
+		return fmt.Errorf("the specified app name(%s) for `APPENV` should be exist", appName)
+	}
+
+	tmpEnv := make(map[string]string)
+	for _, elem := range envList {
+		var kv []string
+		if kv = strings.SplitN(elem, "=", 2); len(kv) != 2 {
+			continue
+		}
+		tmpEnv[kv[0]] = kv[1]
+	}
+
+	appEnv := result.AppEnvMap[appName]
+	if appEnv == nil {
+		appEnv = make(map[string]string)
+	}
+
+	for k, v := range tmpEnv {
+		appEnv[k] = v
+	}
+
+	result.AppEnvMap[appName] = appEnv
+	return nil
+}
+
+func (kp *KubefileParser) processGlobalEnv(node *Node, result *KubefileResult) error {
+	valueList := strings.SplitN(node.Original, "ENV ", 2)
+	if len(valueList) != 2 {
+		return fmt.Errorf("line %d: invalid ENV instruction: %s", node.StartLine, node.Original)
+	}
+	envs := valueList[1]
+
+	for _, elem := range strings.Split(envs, " ") {
+		if elem == "" {
+			continue
+		}
+
+		var kv []string
+		if kv = strings.SplitN(elem, "=", 2); len(kv) != 2 {
+			continue
+		}
+		result.GlobalEnv[kv[0]] = kv[1]
+	}
+
 	return nil
 }
 
@@ -380,9 +475,6 @@ func (kp *KubefileParser) processFrom(node *Node, result *KubefileResult) error 
 		// https://github.com/golang/gofrontend/blob/e387439bfd24d5e142874b8e68e7039f74c744d7/go/statements.cc#L5501
 		theApp := app
 		result.Applications[app.Name()] = theApp
-	}
-	for _, appConfig := range imageSpec.ImageExtension.Launch.AppConfigs {
-		result.ApplicationConfigs[appConfig.Name] = appConfig
 	}
 
 	return nil

@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/kube-proxy/config/v1alpha1"
 	"k8s.io/kubelet/config/v1beta1"
-	"k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1beta2"
+	"k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1beta3"
 	kubeadmConstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 
 	"github.com/sealerio/sealer/common"
@@ -135,9 +135,9 @@ func decodeClusterFile(reader io.Reader, clusterfile *ClusterFile) error {
 				}
 			}
 
-			clusterfile.apps = &app
+			clusterfile.app = &app
 		case kubeadmConstants.InitConfigurationKind:
-			var in v1beta2.InitConfiguration
+			var in v1beta3.InitConfiguration
 
 			if err := yaml.Unmarshal(ext.Raw, &in); err != nil {
 				return fmt.Errorf("failed to decode %s[%s]: %v", metaType.Kind, metaType.APIVersion, err)
@@ -145,7 +145,7 @@ func decodeClusterFile(reader io.Reader, clusterfile *ClusterFile) error {
 
 			clusterfile.kubeadmConfig.InitConfiguration = in
 		case kubeadmConstants.JoinConfigurationKind:
-			var in v1beta2.JoinConfiguration
+			var in v1beta3.JoinConfiguration
 
 			if err := yaml.Unmarshal(ext.Raw, &in); err != nil {
 				return fmt.Errorf("failed to decode %s[%s]: %v", metaType.Kind, metaType.APIVersion, err)
@@ -153,7 +153,7 @@ func decodeClusterFile(reader io.Reader, clusterfile *ClusterFile) error {
 
 			clusterfile.kubeadmConfig.JoinConfiguration = in
 		case kubeadmConstants.ClusterConfigurationKind:
-			var in v1beta2.ClusterConfiguration
+			var in v1beta3.ClusterConfiguration
 
 			if err := yaml.Unmarshal(ext.Raw, &in); err != nil {
 				return fmt.Errorf("failed to decode %s[%s]: %v", metaType.Kind, metaType.APIVersion, err)
@@ -230,8 +230,8 @@ func checkAndFillCluster(cluster *v2.Cluster) error {
 	cluster.Spec.Env = newEnv
 
 	clusterEnvMap := strUtil.ConvertStringSliceToMap(cluster.Spec.Env)
-	if svcCIDR, ok := clusterEnvMap[common.EnvSvcCIDR]; ok && svcCIDR != nil {
-		cidrs := strings.Split(svcCIDR.(string), ",")
+	if svcCIDR, ok := clusterEnvMap[common.EnvSvcCIDR]; ok && svcCIDR != "" {
+		cidrs := strings.Split(svcCIDR, ",")
 		_, cidr, err := net.ParseCIDR(cidrs[0])
 		if err != nil {
 			return fmt.Errorf("failed to parse svc CIDR: %v", err)
@@ -288,10 +288,14 @@ func checkAndFillCluster(cluster *v2.Cluster) error {
 		cluster.Spec.Env = append(cluster.Spec.Env, fmt.Sprintf("%s=%s", common.EnvContainerRuntime, cluster.Spec.ContainerRuntime.Type))
 	}
 
+	if cluster.Spec.DataRoot == "" {
+		cluster.Spec.DataRoot = common.DefaultSealerDataDir
+	}
+
 	return nil
 }
 
-//parseLaunchCmds parse shell, kube,helm type launch cmds
+// parseLaunchCmds parse shell, kube,helm type launch cmds
 // kubectl apply -n sealer-io -f ns.yaml -f app.yaml
 // helm install my-nginx bitnami/nginx
 // key1=value1 key2=value2 && bash install1.sh && bash install2.sh

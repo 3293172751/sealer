@@ -53,19 +53,19 @@ a brand new sealer image.`
 
 var exampleNewBuildCmd = `the current path is the context path, default build type is lite and use build cache
 build:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8
+  sealer build -f Kubefile -t my-kubernetes:1.22.15
 build without cache:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --no-cache
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --no-cache
 build with args:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --build-arg MY_ARG=abc,PASSWORD=Sealer123
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --build-arg MY_ARG=abc,PASSWORD=Sealer123
 build with image type:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --type=app-installer
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --type=kube-installer(default)
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --type=app-installer
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --type=kube-installer(default)
   app-installer type image will not install kubernetes.
 build multi-platform image:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --platform linux/amd64,linux/arm64
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --platform linux/amd64,linux/arm64
 build manually ignore image:
-  sealer build -f Kubefile -t my-kubernetes:1.19.8 --ignored-image-list ignoredListPath
+  sealer build -f Kubefile -t my-kubernetes:1.22.15 --ignored-image-list ignoredListPath
 `
 
 // NewBuildCmd buildCmd represents the build command
@@ -117,10 +117,16 @@ func NewBuildCmd() *cobra.Command {
 	buildCmd.Flags().StringSliceVar(&buildFlags.Annotations, "annotation", []string{}, "add annotations for image. Format like --annotation key=[value]")
 	buildCmd.Flags().StringSliceVar(&buildFlags.Labels, "label", []string{getSealerLabel()}, "add labels for image. Format like --label key=[value]")
 	buildCmd.Flags().BoolVar(&buildFlags.NoCache, "no-cache", false, "do not use existing cached images for building. Build from the start with a new set of cached layers.")
+	buildCmd.Flags().StringVar(&buildFlags.BuildMode, "build-mode", options.WithAllMode, "whether to download container image during the build process. default is `all`.")
 
 	supportedImageType := map[string]struct{}{v12.KubeInstaller: {}, v12.AppInstaller: {}}
 	if _, ok := supportedImageType[buildFlags.ImageType]; !ok {
 		logrus.Fatalf("image type %s is not supported", buildFlags.ImageType)
+	}
+
+	supportedBuildModeType := map[string]struct{}{options.WithAllMode: {}, options.WithLiteMode: {}}
+	if _, ok := supportedBuildModeType[buildFlags.BuildMode]; !ok {
+		logrus.Fatalf("build mode type %s is not supported in %s", buildFlags.BuildMode, options.SupportedBuildModes)
 	}
 
 	return buildCmd
@@ -172,6 +178,7 @@ func buildSingleSealerImage(engine imageengine.Interface, imageName string, mani
 	defer func() {
 		_ = os.Remove(dockerfilePath)
 	}()
+	buildFlags.DockerFilePath = dockerfilePath
 
 	// set the image extension to oci image annotation
 	imageExtension := buildImageExtensionOnResult(result, buildFlags.ImageType)
@@ -180,18 +187,40 @@ func buildSingleSealerImage(engine imageengine.Interface, imageName string, mani
 		return errors.Wrap(err, "failed to marshal image extension")
 	}
 
+	// add annotations to image. Store some sealer specific information
+	buildFlags.Annotations = append(buildFlags.Annotations, fmt.Sprintf("%s=%s", v12.SealerImageExtension, string(iejson)))
+	buildFlags.Platforms = []string{platformStr}
+
+	// if it is lite mode, just build it and return
+	if buildFlags.BuildMode == options.WithLiteMode {
+		// build single platform image
+		if manifest == "" {
+			_, err = engine.Build(&buildFlags)
+			if err != nil {
+				return fmt.Errorf("failed to build sealer image with lite mode: %+v", err)
+			}
+
+			return nil
+		}
+
+		// build multi-platform image
+		buildFlags.Tag = ""
+		buildFlags.NoCache = true
+		iid, err := engine.Build(&buildFlags)
+		if err != nil {
+			return fmt.Errorf("failed to build sealer image with all mode: %+v", err)
+		}
+
+		return engine.AddToManifest(manifest, []string{iid}, &options.ManifestAddOpts{})
+	}
+
 	var (
-		randomStr = getRandomString(8)
 		// use temp tag to do temp image build, because after build,
 		// we need to download some container data loaded from rootfs to it.
-		tempTag = imageName + randomStr
+		tempTag = imageName + getRandomString(8)
 	)
 
 	buildFlags.Tag = tempTag
-	// add annotations to image. Store some sealer specific information
-	buildFlags.DockerFilePath = dockerfilePath
-	buildFlags.Annotations = append(buildFlags.Annotations, fmt.Sprintf("%s=%s", v12.SealerImageExtension, string(iejson)))
-	buildFlags.Platforms = []string{platformStr}
 	iid, err := engine.Build(&buildFlags)
 	if err != nil {
 		return errors.Errorf("error in building image, %v", err)
@@ -294,7 +323,15 @@ func applyRegistryToImage(engine imageengine.Interface, imageID string, platform
 	if err != nil {
 		return "", nil, errors.Wrap(err, "failed to parse container image list")
 	}
-	containerImageList = append(containerImageList, parsedContainerImageList...)
+	for _, image := range parsedContainerImageList {
+		logrus.Debugf("get container image(%s) with platform(%s) from build context",
+			image.Image, platform.ToString())
+		containerImageList = append(containerImageList, &v12.ContainerImage{
+			Image:    image.Image,
+			AppName:  image.AppName,
+			Platform: &platform,
+		})
+	}
 
 	// ignored image list
 	if buildFlags.IgnoredImageList != "" && osi.IsFileExist(buildFlags.IgnoredImageList) {
@@ -430,6 +467,7 @@ func buildImageExtensionOnResult(result *parser.KubefileResult, imageType string
 		Applications:  []version2.VersionedApplication{},
 		Launch:        v12.Launch{},
 		SchemaVersion: v12.ImageSpecSchemaVersionV1Beta1,
+		Env:           result.GlobalEnv,
 		BuildClient: v12.BuildClient{
 			SealerVersion:  version.Get().GitVersion,
 			BuildahVersion: define.Version,
@@ -441,10 +479,6 @@ func buildImageExtensionOnResult(result *parser.KubefileResult, imageType string
 	}
 	extension.Launch.Cmds = result.RawCmds
 	extension.Launch.AppNames = result.LaunchedAppNames
-
-	for _, appConfig := range result.ApplicationConfigs {
-		extension.Launch.AppConfigs = append(extension.Launch.AppConfigs, appConfig)
-	}
 
 	return extension
 }

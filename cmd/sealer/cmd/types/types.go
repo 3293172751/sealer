@@ -32,6 +32,15 @@ type RunFlags struct {
 	// override default APPNames of sealer image
 	// Only one can be selected for LaunchCmds and AppNames
 	AppNames []string
+
+	//IgnoreCache: indicate that whether sealer use cache when distribute sealer image,
+	//if not, will force sync sealer rootfs.
+	//default is false.
+	IgnoreCache bool
+
+	// Distributor: distribution method to use (sftp, p2p)
+	// default is sftp
+	Distributor string
 }
 
 type ApplyFlags struct {
@@ -48,6 +57,11 @@ type ApplyFlags struct {
 	Mode        string
 	CustomEnv   []string
 	ForceDelete bool
+
+	//IgnoreCache: indicate that whether sealer use cache when distribute sealer image,
+	//if not, will force sync sealer rootfs.
+	//default is false.
+	IgnoreCache bool
 }
 
 type ScaleUpFlags struct {
@@ -60,6 +74,11 @@ type ScaleUpFlags struct {
 	Pk         string
 	PkPassword string
 	CustomEnv  []string
+
+	//IgnoreCache: indicate that whether sealer use cache when distribute sealer image,
+	//if not, will force sync sealer rootfs.
+	//default is false.
+	IgnoreCache bool
 }
 
 type DeleteFlags struct {
@@ -69,6 +88,7 @@ type DeleteFlags struct {
 	ClusterFile string
 	DeleteAll   bool
 	ForceDelete bool
+	Prune       bool
 }
 
 type MergeFlags struct {
@@ -90,4 +110,26 @@ type MergeFlags struct {
 
 type UpgradeFlags struct {
 	ClusterFile string
+	AppNames    []string // override default APPNames of sealer image
+
+	//IgnoreCache: indicate that whether sealer use cache when distribute sealer image,
+	//if not, will force sync sealer rootfs.
+	//default is false.
+	IgnoreCache bool
 }
+
+type RollbackFlags struct {
+	AppNames []string // override default APPNames of sealer image
+
+	//IgnoreCache: indicate that whether sealer use cache when distribute sealer image,
+	//if not, will force sync sealer rootfs.
+	//default is false.
+	IgnoreCache bool
+}
+
+type DistributionMethod uint64
+
+const (
+	SFTPDistribution DistributionMethod = iota
+	P2PDistribution
+)

@@ -19,8 +19,8 @@ import (
 	v2 "github.com/sealerio/sealer/types/api/v2"
 )
 
-//ConstructApplication merge flags to v2.Application
-func ConstructApplication(app *v2.Application, cmds, appNames []string) *v2.Application {
+// ConstructApplication merge flags to v2.Application
+func ConstructApplication(app *v2.Application, cmds, appNames, globalEnvs []string) *v2.Application {
 	var newApp *v2.Application
 
 	if app != nil {
@@ -40,6 +40,16 @@ func ConstructApplication(app *v2.Application, cmds, appNames []string) *v2.Appl
 
 	if appNames != nil {
 		newApp.Spec.LaunchApps = appNames
+	}
+
+	// add appEnvs from flag to application object.
+	if len(globalEnvs) > 0 {
+		var appConfigList []v2.ApplicationConfig
+		for _, appConfig := range newApp.Spec.Configs {
+			appConfig.Env = append(globalEnvs, appConfig.Env...)
+			appConfigList = append(appConfigList, appConfig)
+		}
+		newApp.Spec.Configs = appConfigList
 	}
 
 	return newApp

@@ -31,7 +31,7 @@ import (
 )
 
 const (
-//nginxDemoURL = "https://raw.githubusercontent.com/kubernetes/website/main/content/en/examples/application/deployment.yaml"
+// nginxDemoURL = "https://raw.githubusercontent.com/kubernetes/website/main/content/en/examples/application/deployment.yaml"
 )
 
 var testParser *KubefileParser
@@ -212,6 +212,54 @@ FROM scratch
 	assert.Equal(t, expectedResult.Dockerfile, result.Dockerfile)
 	assert.Equal(t, len(expectedResult.Applications), len(result.Applications))
 	assert.Equal(t, expectedResult.RawCmds, result.RawCmds)
+}
+
+func TestParserEnv(t *testing.T) {
+	appFilePath := "./test/kube-nginx-deployment/deployment.yaml"
+	imageEngine := testImageEngine{}
+	opts := options.BuildOptions{
+		PullPolicy: "missing",
+	}
+
+	buildCxt, err := setupTempContext()
+	assert.Equal(t, nil, err)
+	defer func() {
+		_ = os.RemoveAll(buildCxt)
+	}()
+
+	opts.ContextDir = buildCxt
+	testParser = NewParser(testAppRootPath, opts, imageEngine, platformParse.DefaultPlatform())
+
+	var (
+		text = fmt.Sprintf(`
+FROM scratch 
+APP app1 local://%s
+ENV globalKey=globalValue
+APPENV app1 key1=value1 key2=value2
+APPENV app1 key1=value3 key2=value3
+LAUNCH ["app1"]`, appFilePath)
+	)
+
+	reader := bytes.NewReader([]byte(text))
+	result, err := testParser.ParseKubefile(reader)
+	if err != nil {
+		t.Fatalf("failed to parse kubefile: %s", err)
+	}
+	defer func() {
+		_ = result.CleanLegacyContext()
+	}()
+
+	expectedResult := &KubefileResult{
+		GlobalEnv: map[string]string{
+			"globalKey": "globalValue",
+		},
+		AppEnvMap: map[string]map[string]string{
+			"app1": {"key1": "value3", "key2": "value3"},
+		},
+	}
+
+	assert.Equal(t, expectedResult.GlobalEnv, result.GlobalEnv)
+	assert.Equal(t, expectedResult.AppEnvMap, result.AppEnvMap)
 }
 
 func setupTempContext() (string, error) {
